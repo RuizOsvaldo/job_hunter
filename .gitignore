@@ -1,0 +1,10 @@
+.env
+venv/
+__pycache__/
+*.pyc
+data/jobs.db
+data/resumes/
+data/cover_letters/
+data/indeed_cookies.json
+.playwright/
+assets/
