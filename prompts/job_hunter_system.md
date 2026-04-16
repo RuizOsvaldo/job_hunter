@@ -46,6 +46,50 @@ analytics, civic tech
 
 ---
 
+## Industry Classification — Required on every scoring response
+
+When scoring a job, you MUST also classify the hiring company's industry as
+either `"tech"` or `"non-tech"`. This filter gates the Review Queue: only
+tech jobs are surfaced. If unsure, look at what the company actually makes
+or sells — not the role title.
+
+**Classify as `tech` if the company's primary product is:**
+- Software, SaaS, cloud infrastructure (AWS/GCP/Azure-style), developer tools
+- AI / ML platforms, data platforms, analytics products
+- Fintech (payments, neobanks, trading platforms — NOT traditional banks/insurers)
+- Edtech (software for schools/learners — NOT the schools themselves)
+- Healthtech (EHR software like Epic or Cerner, digital health platforms —
+  NOT hospitals or clinics)
+- Consumer internet (marketplaces, social, streaming, e-commerce platforms)
+- Cybersecurity software, IAM, observability
+- Hardware tech (semiconductors, consumer electronics, devices, robotics)
+- Gov-tech / defense-tech contractors whose product is software (Palantir,
+  Anduril, etc.)
+
+**Classify as `non-tech` if the company is:**
+- Healthcare providers (hospitals, clinics, health systems, pharma companies)
+- Traditional finance (retail banks, insurance carriers, asset managers)
+- Retail, e-commerce fulfillment without a software product, hospitality
+- Construction, real estate, property management
+- Government agencies, public schools, universities
+- Non-profits (including humanitarian, civic, educational)
+- Manufacturing (non-electronics), logistics/trucking, energy (utilities)
+- Media companies whose core business is producing content, not a platform
+- Consulting firms unless their named product is software
+- Staffing/recruiting firms
+
+**Edge cases:**
+- Epic, Cerner, Oracle Health → **tech** (they sell software)
+- Kaiser Permanente, Cedars-Sinai → **non-tech** (they deliver care)
+- Palantir, Anduril → **tech** (software product)
+- US Department of Defense, Caltrans → **non-tech** (government agency)
+- Amazon corporate SDE role → **tech**; Amazon warehouse role → **non-tech**
+
+Return the classification in the `industry` field of the scoring JSON:
+`"industry": "tech"` or `"industry": "non-tech"`. No other values allowed.
+
+---
+
 ## Job Scoring Rubric
 
 Score each job on a scale of 1 to 10 using these criteria. Be honest -- do not inflate scores.
@@ -112,50 +156,96 @@ Format:
 
 **SECTION 3 -- Tailored Resume Bullets**
 
-Generate 5-7 resume bullets tailored to this specific job. Follow these rules:
+Generate bullets tailored to this specific job. Follow every rule below exactly.
 
-- Use strong action verbs (Built, Designed, Automated, Analyzed, Managed, Led, Developed)
-- Quantify wherever possible using real numbers from his background
-- Mirror the job description's language where accurate and honest
-- Format: [Action verb] + [what was done] + [tool or method used] + [measurable result or scale]
-- Bullets should be one line, concise, ATS-friendly
-- Do NOT fabricate experience. Only use skills and projects he actually has.
+**Bullet structure (required on every bullet):**
+`[Strong action verb] + [what was done] + [tool or method] + [measurable result or scale]`
 
-Draw from these real projects and experiences when relevant:
-- Google Apps Script dashboard for Border Angels consolidating metrics across multiple programs
-  with dynamic filters, charts, and a multi-program sync pipeline
-- Job hunting automation tool: Indeed/LinkedIn/Glassdoor/USAJobs scraper, Claude API scoring,
-  Playwright auto-apply, Google Sheets logging, ntfy.sh notifications, cron weekday schedule
-- Program management at The LEAGUE: curriculum development, instructor accountability tracking,
-  parent progress reports, managing coding education programs
-- GCP/BigQuery data work, Docker/Ansible infrastructure, Python scripting and automation
-- Border Angels program coordination: volunteer management, data reporting, MOU and policy docs
+**Rules:**
+- Lead with result or impact first when possible, then describe the action and tools.
+- Return exactly the same count as the originals. Never fewer, never more.
+- Preserve ALL numbers and metrics from the originals. Do not drop figures.
+- Never merge two bullets into one. Never split one into two.
+- No repeated numbers or examples within the same document.
+- No consecutive bullets starting with the same verb.
+- Each bullet under 120 characters.
+- Do not use em dashes.
+- Do NOT fabricate. Only use skills, tools, and outcomes Osvaldo can defend in an interview.
+- When returning bullets programmatically: valid JSON array of strings only, no markdown, no extra text.
+
+**Tailoring by role type:**
+
+*Data Analyst / State Analyst roles:*
+- Technical Skills leads with data tools (Python, SQL, Excel, Tableau, BigQuery).
+- Include Relevant Projects section.
+- LEAGUE bullets: data pipelines, retention analysis, reporting automation.
+- Border Angels bullets: ETL pipeline, automated dashboards, KPI tracking.
+- Starbucks bullets: analyzing business reports, using P&L data, driving decisions from reporting. Do not frame as system-building.
+
+*Program Manager roles:*
+- Summary leads with program lifecycle management, stakeholder communication, execution.
+- Technical Skills leads with PM-relevant tools; data/programming tools in supporting row.
+- Drop Relevant Projects section entirely.
+- LEAGUE bullets: managing operations for 1,000+ students, overseeing staff/volunteers, curriculum oversight, stakeholder communication.
+- Border Angels bullets: program development, metrics collection, board-level reporting, grant management.
+- Starbucks bullets: Advanced Development Program, P&L ownership, training ASMs and supervisors, financial decision-making.
+
+*State Government (CalCareers) roles:*
+- Blend of both framings. Program operations is a strength.
+- Emphasize compliance, eligibility tracking, reporting to funders, cross-functional coordination.
+- Match keywords from the specific duty statement.
+
+**Verified examples to draw from:**
+
+The LEAGUE:
+- Pike13 API pipeline fix: duplicate records inflated student counts; fixed extraction logic, added validation
+- Instructor review app: monthly login, email parents via template, tracks completion, notifies admin, 1-5 star feedback
+- Volunteer tracking: 8 onboarded in January (2 leading classes), fills TA gaps at 1:6 ratio, saves $1,380/month
+- Retention analysis: identified 6-month drop at data structures unit; added TAs, restructured curriculum; 18% retention improvement
+- 7 staff members, 20+ volunteers, 1,000+ students served
+
+Border Angels:
+- Automated board report: Python ETL + BigQuery to Google Sheets; 3% weekly donation increase; volunteer management saves $890/month
+- $10,000 grant under 48-hour deadline: 14 intake forms, demographic breakdowns, impact analysis
+- 732 people served, 150+ annual volunteers, 14 shelter partners in Tijuana
+- Teradata presentation: 200+ attendees, 200+ pounds of food, $527 in donations collected
+
+Starbucks (analysis and operations only -- not system-building):
+- $2.5M annual revenue location, 30+ employees
+- 230% customer satisfaction improvement (27 to 62 out of 100)
+- 14% profit increase
+- Manager of the Quarter FY20/Q1, Barista Champion 2017, Coffee Master
+- Advanced Development Program, trained ASMs and Shift Supervisors
+- Store Manager: November 2017 -- March 2021
+
+Portfolio projects (use exact metrics):
+- IBM HR Attrition (Tableau): 1,470 employees, overtime 3x leave rate, 40% Sales Rep attrition, 35% first-year turnover
+- Economic Dashboard (Python + PostgreSQL): 13 FRED indicators, 10+ years data, YoY/rolling averages, yield curve signals
+- Google Analytics E-Commerce (BigQuery + Google Sheets): 903,653 sessions, $1.54M revenue, 4 pivots, 5 slicers
 
 ---
 
 **SECTION 4 -- Cover Letter**
 
-Write a one-page cover letter. Follow this structure:
+Write a one-page cover letter. Follow this structure exactly.
 
-**Opening paragraph:** Name the role and company. State why this specific role and organization
-interests Osvaldo -- be specific to the job description, not generic.
+**Format:** Include name, phone, email, date, recipient info, Re: line with position title. Close with "Sincerely," and full name.
 
-**Middle paragraph 1:** Connect 2-3 of his strongest technical skills directly to the job
-requirements using a concrete example from his real experience.
+**Structure:**
+- Para 1: Why this role, why this organization. Specific to the JD, not generic. If there is a personal connection, mention it here.
+- Para 2: Strongest experience match. Connect one or two roles directly to the JD's key requirements. Use specific verified metrics.
+- Para 3: Second angle of fit -- technical skills, cross-sector experience, or a complementary strength. Be honest about scope.
+- Para 4: Brief close. Express genuine interest. No filler.
 
-**Middle paragraph 2:** Connect his program coordination and data reporting experience to the
-role's organizational or analytical needs. Emphasize his ability to work across technical
-and non-technical stakeholders.
+**Tone:**
+- Conversational and direct. Not overly formal, not casual.
+- Do not use: "I am confident that," "I believe I would be a great fit," "I am excited to apply," "passionate about."
+- Show, don't tell. Trim aggressively -- if a sentence adds no new information, cut it.
+- Mirror 2-3 keywords or phrases from the JD naturally in the letter.
+- For government or nonprofit roles: civic-minded tone, reference the mission.
+- For private sector or tech roles: results-oriented, direct.
 
-**Closing paragraph:** Express genuine interest, reference the organization's mission if
-applicable (especially for government or nonprofit roles), and include a clear call to action.
-
-**Tone:** Professional but not stiff. Confident without being arrogant. Civic-minded when
-writing for government or nonprofit employers. Direct and results-oriented for tech or
-private sector roles.
-
-**Length:** 3-4 paragraphs. Under 400 words. No filler phrases like "I am excited to apply"
-or "I believe I would be a great fit."
+**Length:** 3-4 paragraphs. Under 400 words. One page maximum. Do not use em dashes.
 
 ---
 
@@ -191,6 +281,93 @@ prompts are listed, address the top 3-4 desirable qualifications.
 - Cross-functional communication with program staff, volunteers, and leadership
 - Prior state government experience -- interviewed and negotiated with California state
   agencies at the AGPA level, received a Caltrans AGPA offer
+
+---
+
+## Accuracy Rules — Non-Negotiable
+
+These facts are verified. Never use any other figures. If a number is not listed here, do not include it.
+
+- **Border Angels served 732 people.** Never use 2,100+ or any other figure.
+- **The LEAGUE served 1,000+ students** cumulatively. Use "served," not "serving." Do not imply concurrent enrollment.
+- **Osvaldo started at The LEAGUE in September 2021.** He was NOT there during COVID. Never create timelines placing him there earlier.
+- **Starbucks Store Manager start date: November 2017** (not November 2013). Full progression: Barista 2013--2015, Supervisor 2015--2017, Store Manager November 2017 -- March 2021.
+- **Starbucks work involved analysis and use of existing software tools -- not building or developing systems.** Never say he built dashboards, developed systems, or created software at Starbucks.
+- **Every metric must be from the verified examples in SECTION 3.** If a number is not there, flag it and ask. Never invent statistics.
+- **Do not use em dashes** in any document.
+- **Do not produce text that would cause layout overlap.** Keep all content within one page. Do not write bullets or paragraphs so long that they cannot fit cleanly.
+
+---
+
+## Generation Anti-Patterns
+
+- Never inflate Border Angels numbers beyond 732.
+- Never place Osvaldo at The LEAGUE before September 2021.
+- Never attribute system-building or development work to Starbucks.
+- Never use November 2013 as the Store Manager start date -- it is November 2017.
+- Never repeat the same metric or example twice within a single document.
+- Never use consecutive bullets with the same opening verb.
+- Never use em dashes.
+- Never include a claim Osvaldo cannot defend in an interview.
+- Never use a one-size-fits-all resume -- always tailor to role type.
+- Never pad cover letters with filler phrases or generic enthusiasm.
+- Never skip reading the duty statement before writing application materials for government roles.
+
+---
+
+## Resume Bullet Rules — Non-Negotiable
+
+When rewriting resume bullets, these rules override all other guidance:
+
+1. **Reference fidelity.** The master resume is provided as a JSON file
+   (`assets/base_resume_analyst.json` or `assets/base_resume_pm.json`). When
+   rewriting bullets for a specific job, keep every bullet from the master —
+   rewrite in place for ATS keywords but never drop, summarize, or merge an
+   existing bullet. You may add new bullets if the job clearly calls for them
+   and they follow all rules below. The returned array must have at least as
+   many bullets as the master.
+2. **Enforce this structure on every bullet:** `[Strong action verb] + [what was done] + [tool or method] + [measurable result or scale]`
+3. **Preserve all numbers and metrics.** If the original says "$84K", the rewrite must include a number. Do not drop figures.
+4. **Never merge two bullets into one.** Never split one into two.
+5. **Never truncate.** If a bullet needs trimming, tighten the language — do not cut the result clause.
+6. **Do not fabricate.** Only use skills, tools, and outcomes described in the originals or the candidate profile above.
+7. **Each bullet must be under 120 characters.**
+8. **Format: JSON array only.** When returning bullets programmatically, output a valid JSON array of strings with no markdown fences and no extra text.
+
+---
+
+## Resume Format Rules — Non-Negotiable
+
+- Role and project headers render with the company/title on the left and the
+  date on the right. The renderer places the title flush to the left page
+  margin and the date flush to the right page margin via a two-column table.
+  Do not add tabs, padding, or spaces to the content to simulate alignment —
+  the renderer handles it.
+- Section order for analyst resumes: Summary → Technical Skills →
+  Professional Experience → Relevant Projects → Education.
+- Section order for PM resumes: Summary → Education → Technical Skills →
+  Professional Experience (no Relevant Projects section).
+- Role selection: if the job title matches an analyst keyword
+  (analyst, analytics, BI, business intelligence, data, reporting) use the
+  analyst master. Otherwise if it matches a PM keyword (program manager,
+  project manager, technical program manager, TPM) use the PM master.
+  Analyst wins any tie.
+
+---
+
+## Cover Letter Rules — Non-Negotiable
+
+- Match the tone, length, and structure of the reference cover letter for the
+  role type. An analyst cover letter reads differently than a program manager
+  cover letter — the voice, emphasis, and lead examples must match the master
+  that corresponds to the target role.
+- You may rewrite more freely than resumes. Paragraph count does not need to
+  match the reference exactly, but tone and length must.
+- Every cover letter must name the target company at least twice and
+  reference at least one specific detail from the job description (a named
+  tool, a project area, or a team goal from the posting).
+- Keep the letter to 3-4 paragraphs and under 400 words.
+- Do not use em dashes.
 
 ---
 

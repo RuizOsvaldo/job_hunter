@@ -15,7 +15,7 @@ import streamlit as st
 import pandas as pd
 
 from src.database import (
-    init_db, get_jobs, get_stats, set_status, get_job, get_pending_review
+    init_db, get_jobs, get_stats, set_status, get_job, get_pending_review, set_documents
 )
 import config
 
@@ -76,23 +76,23 @@ def status_badge(status):
 
 
 def pdf_viewer_and_download(label: str, path: str):
-    """Show a PDF download button + inline base64 embed viewer."""
+    """Show an inline base64 PDF embed viewer + download button below."""
     p = Path(path)
     if not p.exists():
         st.warning(f"{label} file not found.")
         return
     data = p.read_bytes()
     b64 = base64.b64encode(data).decode()
+    st.markdown(
+        f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600px"></iframe>',
+        unsafe_allow_html=True,
+    )
     st.download_button(
         label=f"⬇ Download {label}",
         data=data,
         file_name=p.name,
         mime="application/pdf",
         key=f"dl_{label}_{p.stem}_{int(time.time())}",
-    )
-    st.markdown(
-        f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600px"></iframe>',
-        unsafe_allow_html=True,
     )
 
 
@@ -101,9 +101,13 @@ def run_pipeline(run_now: bool = True):
     from src.scraper import run_search
     from src.scorer import score_unscored_jobs
     from src.notifier import notify_pending_review, notify_daily_summary
+    from src.scheduler import _run_gov_scrapers
 
     with st.spinner("Running job search pipeline..."):
         new = run_search()
+        gov_new = _run_gov_scrapers()
+        new += gov_new
+
         scored = score_unscored_jobs()
 
         pending = get_pending_review()
@@ -120,7 +124,7 @@ def run_pipeline(run_now: bool = True):
         except Exception:
             pass
 
-    st.success(f"Done! Found {new} new jobs, scored {scored}.")
+    st.success(f"Done! Found {new} new jobs ({gov_new} from government sources), scored {scored}.")
     time.sleep(1)
     st.rerun()
 
@@ -186,12 +190,133 @@ with tab2:
     if not pending:
         st.info("No jobs pending review. Run the pipeline or wait for the scheduled run.")
     else:
+        # ── Batch Actions ─────────────────────────────────────────────────────
+        st.subheader("Batch Actions")
+        st.caption(
+            "Select rows below, then Auto-Apply or Remove. Auto-Apply runs the "
+            "full pipeline (tailor resume if needed → fresh cover letter → Easy "
+            "Apply) on each selected job sequentially. Failures are marked "
+            "`apply_failed` and the batch continues."
+        )
+
+        from src.resume_builder import resume_match_score
+
+        def _role_label(rt: str) -> str:
+            return "Program Manager" if rt == "pm" else "Analyst"
+
+        def _match_cell(j: dict) -> str:
+            try:
+                return f"{resume_match_score(j)}%"
+            except Exception:
+                return "—"
+
+        batch_job_ids = [j["job_id"] for j in pending]
+        batch_df = pd.DataFrame([{
+            "Select":   False,
+            "Score":    j.get("score"),
+            "Title":    j.get("title"),
+            "Company":  j.get("company"),
+            "Role":     _role_label(j.get("role_type") or "analyst"),
+            "Match":    _match_cell(j),
+            "Industry": (j.get("industry") or "tech").title(),
+        } for j in pending])
+
+        _batch_state = st.session_state.get("batch_table", {})
+        _edited_rows = _batch_state.get("edited_rows", {}) if isinstance(_batch_state, dict) else {}
+        _any_checked = any(row.get("Select") for row in _edited_rows.values())
+
+        b_apply_col, b_remove_col, _b_spacer = st.columns([1, 1, 4])
+        with b_apply_col:
+            batch_apply_clicked = st.button(
+                "✅ Auto-Apply Selected",
+                type="primary",
+                key="batch_apply_btn",
+                disabled=not _any_checked,
+            )
+        with b_remove_col:
+            batch_remove_clicked = st.button(
+                "❌ Remove Selected",
+                key="batch_remove_btn",
+                disabled=not _any_checked,
+            )
+
+        edited_batch = st.data_editor(
+            batch_df,
+            key="batch_table",
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Select": st.column_config.CheckboxColumn("Select", default=False),
+                "Score":  st.column_config.NumberColumn("Score", format="%.1f"),
+            },
+            disabled=["Score", "Title", "Company", "Role", "Match", "Industry"],
+        )
+
+        if batch_apply_clicked:
+            checked_idx = [i for i, v in enumerate(edited_batch["Select"].tolist()) if v]
+            if not checked_idx:
+                st.warning("No rows selected.")
+            else:
+                from src.applicator import apply_job
+                success = 0
+                failure = 0
+                total = len(checked_idx)
+                for i in checked_idx:
+                    jid = batch_job_ids[i]
+                    row = pending[i]
+                    label = f"Applying to {row['title']} @ {row['company']}"
+                    with st.status(label, expanded=False) as status:
+                        try:
+                            result = apply_job(jid)
+                            if result:
+                                success += 1
+                                status.update(
+                                    label=f"✅ {row['title']} @ {row['company']}",
+                                    state="complete",
+                                )
+                            else:
+                                failure += 1
+                                status.update(
+                                    label=f"❌ {row['title']} @ {row['company']} — Easy Apply unavailable",
+                                    state="error",
+                                )
+                        except Exception as e:
+                            failure += 1
+                            status.update(
+                                label=f"❌ {row['title']} @ {row['company']} — {e}",
+                                state="error",
+                            )
+                st.success(
+                    f"Applied to {success} of {total} jobs — "
+                    f"{failure} failed and marked apply_failed"
+                )
+                st.rerun()
+
+        if batch_remove_clicked:
+            checked_idx = [i for i, v in enumerate(edited_batch["Select"].tolist()) if v]
+            if not checked_idx:
+                st.warning("No rows selected.")
+            else:
+                removed = 0
+                for i in checked_idx:
+                    try:
+                        set_status(batch_job_ids[i], "rejected")
+                        removed += 1
+                    except Exception as e:
+                        print(f"[batch_remove] failed {batch_job_ids[i]}: {e}")
+                st.success(f"Removed {removed} jobs from the queue")
+                st.rerun()
+
+        st.divider()
+
         for job in pending:
             score = job.get("score")
             score_display = f"{score}/10" if score else "?"
+            industry_label = (job.get("industry") or "tech").title()
             with st.expander(
                 f"{'🟢' if score and score >= 7 else '🟡'} {job['title']} @ {job['company']}  —  "
-                f"Score {score_display}  |  {job.get('location', '')}  |  {status_badge(job['status'])}",
+                f"Score {score_display}  |  {job.get('location', '')}  |  "
+                f"{status_badge(job['status'])}  |  🏷 {industry_label}",
                 expanded=False,
             ):
                 col_l, col_r = st.columns([2, 1])
@@ -228,6 +353,21 @@ with tab2:
                 resume_path = job.get("resume_path")
                 cl_path = job.get("cover_letter_path")
 
+                # ── Original-resume-suffices banner ──────────────────────────
+                if job["status"] != "applied":
+                    try:
+                        from src.resume_builder import resume_match_score
+                        match_pct = resume_match_score(job)
+                        role_label = (job.get("role_type") or "analyst").replace("pm", "program manager")
+                        if match_pct >= 80:
+                            st.info(
+                                f"Your original {role_label} resume already matches this job "
+                                f"at {match_pct}% — tailoring may not be needed. You can still "
+                                "generate a tailored version below."
+                            )
+                    except Exception as e:
+                        st.warning(f"Could not compute match score: {e}")
+
                 if not resume_path or not Path(resume_path).exists():
                     if job["status"] not in ("applied",):
                         if st.button("📄 Generate Documents", key=f"gen_{job['job_id']}"):
@@ -237,6 +377,59 @@ with tab2:
                             st.success("Documents generated! Scroll down to preview.")
                             st.rerun()
                 else:
+                    # ── Regenerate controls (above docs) ─────────────────────
+                    if job["status"] != "applied":
+                        regen_feedback = st.text_area(
+                            "Feedback (optional)",
+                            placeholder="e.g. 'Make the cover letter less formal' or 'Emphasize SQL more in resume'",
+                            key=f"regen_feedback_{job['job_id']}",
+                            height=80,
+                            label_visibility="collapsed",
+                        )
+                        rb_col, rcl_col, both_col, _ = st.columns([1, 1, 1, 3])
+                        with rb_col:
+                            if st.button("🔄 Resume", key=f"regen_resume_{job['job_id']}"):
+                                try:
+                                    with st.spinner("Regenerating resume..."):
+                                        from src.resume_builder import build_resume
+                                        new_path = build_resume(get_job(job["job_id"]), feedback=regen_feedback)
+                                        set_documents(job["job_id"], new_path, cl_path)
+                                        if job["status"] == "approved":
+                                            set_status(job["job_id"], "pending_review")
+                                    st.success("Resume regenerated.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed: {e}")
+                        with rcl_col:
+                            if st.button("🔄 Cover Letter", key=f"regen_cl_{job['job_id']}"):
+                                try:
+                                    with st.spinner("Regenerating cover letter..."):
+                                        from src.cover_letter import build_cover_letter
+                                        new_cl = build_cover_letter(get_job(job["job_id"]), feedback=regen_feedback)
+                                        set_documents(job["job_id"], resume_path, new_cl)
+                                        if job["status"] == "approved":
+                                            set_status(job["job_id"], "pending_review")
+                                    st.success("Cover letter regenerated.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed: {e}")
+                        with both_col:
+                            if st.button("🔄 Both", key=f"regen_both_{job['job_id']}"):
+                                try:
+                                    with st.spinner("Regenerating both documents..."):
+                                        from src.applicator import generate_documents_only
+                                        generate_documents_only(
+                                            job["job_id"],
+                                            resume_feedback=regen_feedback,
+                                            cover_letter_feedback=regen_feedback,
+                                        )
+                                        if job["status"] == "approved":
+                                            set_status(job["job_id"], "pending_review")
+                                    st.success("Both documents regenerated.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed: {e}")
+
                     with doc_col1:
                         st.markdown("**Resume**")
                         pdf_viewer_and_download("Resume", resume_path)
@@ -326,6 +519,7 @@ with tab3:
             "State":      j.get("state") or "—",
             "Salary Min": f"${j['salary_min']:,}" if j.get("salary_min") else "—",
             "Status":     j.get("status", "").replace("_", " ").title(),
+            "Industry":   (j.get("industry") or "tech").title(),
             "Source":     j.get("source"),
             "Found":      (j.get("date_found") or "")[:10],
             "URL":        j.get("apply_url"),
@@ -356,7 +550,7 @@ with tab3:
                 "URL":        st.column_config.LinkColumn("URL"),
             },
             disabled=["Score", "Title", "Company", "Work Type", "City", "State",
-                      "Salary Min", "Status", "Source", "Found", "URL"],
+                      "Salary Min", "Status", "Industry", "Source", "Found", "URL"],
         )
 
 

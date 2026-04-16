@@ -49,23 +49,46 @@ async def run(platform: str):
     print("[save_cookies] The browser will close automatically once you're logged in.\n")
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=False)
-        context = await browser.new_context(viewport={"width": 1280, "height": 800})
+        browser = await pw.chromium.launch(
+            headless=False,
+            channel="chrome",          # use real installed Chrome, not Playwright's Chromium
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+            ],
+        )
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        )
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         page = await context.new_page()
 
         await page.goto(url)
 
-        # Wait until the user is logged in (URL changes to a logged-in page)
+        # Wait until the user is logged in
         print("[save_cookies] Waiting for successful login...")
+        login_pages = {
+            "indeed":   ["secure.indeed.com/auth", "secure.indeed.com/login"],
+            "linkedin": ["linkedin.com/login", "linkedin.com/checkpoint"],
+        }
         while True:
             await asyncio.sleep(2)
             current_url = page.url
-            if any(pattern in current_url for pattern in success):
+            # Still on a login/auth page — keep waiting
+            if any(p in current_url for p in login_pages[platform]):
+                continue
+            # Left the login page → logged in
+            if platform == "indeed" and "indeed.com/" in current_url:
                 break
-            # Also check if we're on a page that looks post-login
-            if platform == "linkedin" and "checkpoint" not in current_url and "login" not in current_url:
-                if "linkedin.com/" in current_url:
-                    break
+            if platform == "linkedin" and "linkedin.com/" in current_url:
+                break
 
         cookies = await context.cookies()
         with open(cookies_path, "w") as f:

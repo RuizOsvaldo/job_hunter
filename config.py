@@ -27,13 +27,15 @@ LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD", "")
 # ── Job Search Settings ───────────────────────────────────────────────────────
 SEARCH_TERMS = [
     "Data Analyst",
-    "Data Analyst Python",
-    "Business Analyst",
+    "Data Analyst Python SQL",
     "Business Intelligence Analyst",
-    "Operations Analyst",
-    "Program Analyst",
-    "Data Coordinator",
+    "Business Analyst SQL",
+    "Program Analyst data",
     "Reporting Analyst",
+    "Data Analytics Coordinator",
+    "Program Manager",
+    "Technical Program Manager",
+    "Project Manager",
 ]
 
 SEARCH_LOCATIONS = [
@@ -43,7 +45,7 @@ SEARCH_LOCATIONS = [
 
 # Jobs posted within this many hours are included
 HOURS_OLD = 24
-RESULTS_PER_SEARCH = 15
+RESULTS_PER_SEARCH = 10
 
 # ── Scoring ───────────────────────────────────────────────────────────────────
 AUTO_APPLY_THRESHOLD = 7   # Score >= this → auto-apply after user approval
@@ -57,3 +59,4 @@ BASE_RESUME_PATH = "assets/base_resume.json"
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 SCHEDULE_HOURS = [8]  # 8:00 AM weekdays
+DIGEST_ENABLED = os.getenv("DIGEST_ENABLED", "true").lower() == "true"
