@@ -10,7 +10,7 @@ from reportlab.lib.enums import TA_LEFT, TA_JUSTIFY
 from datetime import date
 
 import config
-from src.llm import call_llm
+from src.llm import call_claude
 
 DARK = colors.HexColor("#1a1a2e")
 
@@ -20,8 +20,10 @@ def _load_system_prompt() -> str:
         return f.read()
 
 
-def _generate_text(job: dict) -> str:
-    user_message = f"""Write a cover letter for this job posting. Follow the cover letter format, tone, and length guidelines in your instructions.
+def _generate_text(job: dict, feedback: str = "") -> str:
+    """Generate cover letter body paragraphs via LLM."""
+    feedback_line = f"User feedback on the previous version: {feedback}\n\n" if feedback.strip() else ""
+    user_message = f"""{feedback_line}Write a cover letter for this job posting. Follow the cover letter format, tone, and length guidelines in your instructions.
 
 Output ONLY the body paragraphs (no date, no address block, no subject line, no salutation). 3-4 paragraphs separated by blank lines.
 
@@ -31,7 +33,7 @@ Location: {job.get('location', '')}
 Job Description:
 {job.get('description', '')[:2500]}"""
 
-    return call_llm(system=_load_system_prompt(), user=user_message, max_tokens=600)
+    return call_claude(system=_load_system_prompt(), user=user_message, max_tokens=600)
 
 
 def _styles():
@@ -62,12 +64,12 @@ def get_cover_letter_text(job: dict) -> str:
     return _generate_text(job)
 
 
-def build_cover_letter(job: dict) -> str:
+def build_cover_letter(job: dict, feedback: str = "") -> str:
     """Generate a tailored cover letter PDF. Returns the file path."""
     Path(config.COVER_LETTERS_DIR).mkdir(parents=True, exist_ok=True)
     out_path = os.path.join(config.COVER_LETTERS_DIR, f"{job['job_id']}_cover_letter.pdf")
 
-    body_text = _generate_text(job)
+    body_text = _generate_text(job, feedback=feedback)
     paragraphs = [p.strip() for p in body_text.split("\n\n") if p.strip()]
 
     s = _styles()

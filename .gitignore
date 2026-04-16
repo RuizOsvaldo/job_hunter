@@ -6,5 +6,6 @@ data/jobs.db
 data/resumes/
 data/cover_letters/
 data/indeed_cookies.json
+data/linkedin_cookies.json
 .playwright/
 assets/

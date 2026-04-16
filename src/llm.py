@@ -17,6 +17,11 @@ def call_llm(system: str, user: str, max_tokens: int = 1024) -> str:
     return _call_claude(system, user, max_tokens)
 
 
+def call_claude(system: str, user: str, max_tokens: int = 1024) -> str:
+    """Always use Claude regardless of LLM_PROVIDER. Used for doc generation."""
+    return _call_claude(system, user, max_tokens)
+
+
 def _call_claude(system: str, user: str, max_tokens: int) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)

@@ -564,10 +564,14 @@ def apply_job(job_id: str) -> bool:
         return False
 
 
-def generate_documents_only(job_id: str) -> tuple[str, str]:
+def generate_documents_only(
+    job_id: str,
+    resume_feedback: str = "",
+    cover_letter_feedback: str = "",
+) -> tuple[str, str]:
     """Build resume + cover letter without applying. Returns (resume_path, cl_path)."""
     job = get_job(job_id)
-    resume_path = build_resume(job)
-    cl_path = build_cover_letter(job)
+    resume_path = build_resume(job, feedback=resume_feedback)
+    cl_path = build_cover_letter(job, feedback=cover_letter_feedback)
     set_documents(job_id, resume_path, cl_path)
     return resume_path, cl_path

@@ -1,4 +1,5 @@
 """SQLite database operations for the job hunter."""
+import re
 import sqlite3
 import json
 from datetime import datetime
@@ -60,30 +61,95 @@ def init_db():
         "ALTER TABLE jobs ADD COLUMN city      TEXT",
         "ALTER TABLE jobs ADD COLUMN state     TEXT",
         "ALTER TABLE jobs ADD COLUMN work_type TEXT",
+        "ALTER TABLE jobs ADD COLUMN role_type TEXT NOT NULL DEFAULT 'analyst'",
+        "ALTER TABLE jobs ADD COLUMN industry  TEXT",
+        "ALTER TABLE jobs ADD COLUMN scored_at TEXT",
     ]:
         try:
             conn.execute(col)
         except Exception:
             pass
+    # Backfill city/state/work_type for any rows that have a location but NULL fields
+    _backfill_location_columns(conn)
+    _backfill_role_type(conn)
+
     conn.commit()
     conn.close()
+
+
+ANALYST_SUBSTRINGS = ("analyst", "analytics", "business intelligence", "reporting")
+ANALYST_WORDS = {"bi", "data"}
+PM_SUBSTRINGS = ("program manager", "project manager", "technical program manager")
+PM_WORDS = {"tpm"}
+
+
+def detect_role_type(title: str) -> str:
+    """Classify a job title as 'analyst' or 'pm'. Analyst wins ties."""
+    if not title:
+        return "analyst"
+    lower = title.lower()
+    words = set(re.findall(r"[a-z]+", lower))
+    if any(kw in lower for kw in ANALYST_SUBSTRINGS) or (words & ANALYST_WORDS):
+        return "analyst"
+    if any(kw in lower for kw in PM_SUBSTRINGS) or (words & PM_WORDS):
+        return "pm"
+    return "analyst"
+
+
+def _backfill_role_type(conn):
+    """Set role_type to the detected value on any row where it's missing or stale."""
+    rows = conn.execute("SELECT job_id, title, role_type FROM jobs").fetchall()
+    for row in rows:
+        detected = detect_role_type(row["title"] or "")
+        if row["role_type"] != detected:
+            conn.execute(
+                "UPDATE jobs SET role_type = ? WHERE job_id = ?",
+                (detected, row["job_id"]),
+            )
+
+
+def _backfill_location_columns(conn):
+    """Parse city/state/work_type from location string for rows missing these fields."""
+    from src.scraper import _parse_location
+
+    rows = conn.execute(
+        "SELECT job_id, location, title, description FROM jobs "
+        "WHERE city IS NULL OR city = ''"
+    ).fetchall()
+
+    for row in rows:
+        location = row["location"] or ""
+        city, state = _parse_location(location)
+        combined = (location + " " + (row["title"] or "") + " " + (row["description"] or "")[:300]).lower()
+        if "hybrid" in combined:
+            work_type = "Hybrid"
+        elif "remote" in location.lower():
+            work_type = "Remote"
+        else:
+            work_type = "On-site"
+
+        conn.execute(
+            "UPDATE jobs SET city=?, state=?, work_type=? WHERE job_id=?",
+            (city, state, work_type, row["job_id"])
+        )
 
 
 # ── Write ────────────────────────────────────────────────────────────────────
 
 def upsert_job(job: dict) -> bool:
     """Insert a new job; skip if already exists. Returns True if inserted."""
+    job = {**job, "role_type": detect_role_type(job.get("title", ""))}
     conn = get_conn()
     try:
         conn.execute("""
             INSERT OR IGNORE INTO jobs
                 (job_id, title, company, location, city, state, work_type, job_type,
                  salary_min, salary_max, description, apply_url,
-                 source, date_posted, date_found, status)
+                 source, date_posted, date_found, role_type, status)
             VALUES
                 (:job_id, :title, :company, :location, :city, :state, :work_type, :job_type,
                  :salary_min, :salary_max, :description, :apply_url,
-                 :source, :date_posted, :date_found, 'found')
+                 :source, :date_posted, :date_found, :role_type, 'found')
         """, job)
         inserted = conn.execute("SELECT changes()").fetchone()[0] > 0
         conn.commit()
@@ -92,14 +158,17 @@ def upsert_job(job: dict) -> bool:
         conn.close()
 
 
-def set_score(job_id: str, score: float, reasons: list[str]):
+def set_score(job_id: str, score: float, reasons: list[str], industry: str = None):
     conn = get_conn()
     status = "pending_review" if score >= config.AUTO_APPLY_THRESHOLD else "scored"
     conn.execute("""
         UPDATE jobs
-        SET score = ?, score_reasons = ?, status = ?
+        SET score = ?, score_reasons = ?, status = ?,
+            industry = COALESCE(?, industry),
+            scored_at = ?
         WHERE job_id = ?
-    """, (score, json.dumps(reasons), status, job_id))
+    """, (score, json.dumps(reasons), status, industry,
+          datetime.now().isoformat(), job_id))
     conn.commit()
     conn.close()
 
@@ -163,6 +232,26 @@ def get_pending_review() -> list[dict]:
     return get_jobs("pending_review")
 
 
+def get_todays_top_matches(limit: int = 10) -> list[dict]:
+    """Return tech jobs scored ≥ 7 during today's Pacific calendar day."""
+    from zoneinfo import ZoneInfo
+    pt_now = datetime.now(ZoneInfo("America/Los_Angeles")).replace(tzinfo=None)
+    start_of_day_pt = pt_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = start_of_day_pt.isoformat()
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM jobs
+        WHERE score >= ?
+          AND industry = 'tech'
+          AND scored_at IS NOT NULL
+          AND scored_at >= ?
+        ORDER BY score DESC, scored_at DESC
+        LIMIT ?
+    """, (config.AUTO_APPLY_THRESHOLD, cutoff, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def get_approved() -> list[dict]:
     return get_jobs("approved")
 
@@ -181,6 +270,37 @@ def get_stats() -> dict:
     """).fetchone()
     conn.close()
     return dict(row)
+
+
+def get_weekly_stats() -> dict:
+    """Return job counts and top applied matches for the last 7 days."""
+    from datetime import timedelta
+    cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+    conn = get_conn()
+    counts = conn.execute("""
+        SELECT
+            COUNT(*)                                              AS total,
+            SUM(CASE WHEN status = 'applied'        THEN 1 END)  AS applied,
+            SUM(CASE WHEN status = 'pending_review' THEN 1 END)  AS pending_review,
+            SUM(CASE WHEN status = 'rejected'       THEN 1 END)  AS rejected,
+            SUM(CASE WHEN status = 'scored'         THEN 1 END)  AS scored
+        FROM jobs
+        WHERE date_found >= ?
+    """, (cutoff,)).fetchone()
+
+    top_applied = conn.execute("""
+        SELECT title, company, score, apply_url
+        FROM jobs
+        WHERE status = 'applied' AND date_found >= ?
+        ORDER BY score DESC
+        LIMIT 10
+    """, (cutoff,)).fetchall()
+
+    conn.close()
+    return {
+        **dict(counts),
+        "top_applied": [dict(r) for r in top_applied],
+    }
 
 
 def job_exists(job_id: str) -> bool:
